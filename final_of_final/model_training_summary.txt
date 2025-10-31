@@ -1,0 +1,35 @@
+
+====================================================================================================
+TỔNG KẾT QUÁ TRÌNH MACHINE LEARNING - TITANIC SURVIVAL PREDICTION
+====================================================================================================
+
+1. DATASET:
+   - Train samples: 891
+   - Test samples:  418
+   - Features:      22
+
+2. MODELS EVALUATED:
+   Logistic Regression, Decision Tree, Random Forest, Gradient Boosting, KNN, Support Vector Machine, Naive Bayes
+
+3. BEST MODEL:
+   - Model:             Gradient Boosting
+   - Best Parameters:   {'learning_rate': 0.01, 'max_depth': 3, 'n_estimators': 200}
+   - Validation Metrics:
+     * Accuracy:        0.8101
+     * Precision:       0.8098
+     * Recall:          0.8101
+     * F1-Score:        0.8059
+
+4. IMPROVEMENTS:
+   - Accuracy Improvement:  +0.56%
+   - F1-Score Improvement:  +0.44%
+
+5. FINAL PREDICTIONS:
+   - Output file:           submission_gradient_boosting_tuned.csv
+   - Total predictions:     418
+   - Predicted survival:    152 (36.36%)
+   - Predicted death:       266 (63.64%)
+
+====================================================================================================
+Completed at: 2025-10-31 14:21:27
+====================================================================================================
