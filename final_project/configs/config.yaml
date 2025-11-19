@@ -1,0 +1,15 @@
+defaults:
+  - _self_
+  - data: data_default
+  - preprocess: preprocess_default
+  - features: features_default
+  - split: split_default
+  - markowitz_manual: markowitz_manual_default
+  - markowitz_pypfopt: markowitz_pypfopt_default
+  - backtest: backtest_default
+  - paths: paths_default
+  - calendar: calendar_default
+
+experiment: experiment_vn30_markowitz
+seed: 42
+

@@ -1,0 +1,19 @@
+deduplicate: true
+align_to_calendar: true
+calendar_path: "data/cache/hose_trading_days.csv"  # Path to trading calendar CSV
+drop_nonpositive: true
+remove_all_nan_days: true
+
+winsorization:
+  enable: true
+  mode: "rolling_quantile"  # rolling_quantile, rolling_mad, abs_cap
+  window: 252  # days (1 year)
+  lower_q: 0.005  # 0.5% quantile
+  upper_q: 0.995  # 99.5% quantile
+  cap_by_exchange_limit: false  # Apply absolute cap after rolling winsorization
+  abs_cap: 0.095  # ±9.5% (VN exchange limit)
+
+stale_masking:
+  enable: true
+  min_consecutive_days: 3  # Mask if zero return for >=3 days
+  warn_threshold_pct: 10.0  # Warn if ticker has stale returns >10% of total days

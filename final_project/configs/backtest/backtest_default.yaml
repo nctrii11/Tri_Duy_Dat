@@ -1,0 +1,16 @@
+rebal_freq: "M"  # M (monthly), Q (quarterly)
+window_in_sample_months: 36  # 3 years
+transaction_cost_bps: 10  # 10 basis points
+slippage_bps: 5  # 5 basis points
+benchmarks:
+  - "VNINDEX"
+  - "VN30_INDEX"
+
+# Walk-forward backtest settings
+walkforward:
+  window_months: 36  # Rolling window for estimation
+  rebalance_freq: "M"  # Monthly rebalancing
+
+# Risk-free rate for Sharpe calculation
+rf: 0.03  # Annualized, decimal (3%)
+

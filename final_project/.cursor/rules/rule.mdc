@@ -1,0 +1,335 @@
+---
+alwaysApply: true
+---
+
+# Cursor AI Rules — VN30 Markowitz (UV + VN Market + Logs, No Clustering)
+
+## 0) Bối cảnh dự án & Thị trường Việt Nam
+
+- Thị trường: Việt Nam (HOSE), tập trung vào rổ VN30.
+- Vũ trụ cố định:
+  - Sử dụng đúng 30 mã cổ phiếu thuộc VN30 (danh sách cố định trong config),
+  - Không xử lý tái cơ cấu rổ VN30 theo thời gian.
+- Khoảng thời gian dữ liệu:
+  - Từ 2020-10-31 đến 2025-10-31 (~5 năm giao dịch).
+- Đặc thù dữ liệu Việt Nam:
+  - Biên độ trần/sàn, thanh khoản thấp hơn US/EU.
+  - Nhiều ngày nghỉ lễ (Tết, lễ), có thể tạm ngừng giao dịch.
+  - Một số mã có lịch sử niêm yết ngắn; xử lý qua config (giữ/loại).
+- Dữ liệu chuẩn:
+  - Ưu tiên adjusted close; nếu không, dùng close đã xử lý corporate actions tốt nhất có thể. :contentReference[oaicite:0]{index=0}
+- Benchmark & beta:
+  - Benchmark: VNINDEX, VN30 Index.
+  - Sharpe/beta tính so với VNINDEX/VN30, không dùng S&P 500/NASDAQ.
+- Mục tiêu:
+  - Tiền xử lý & chuẩn hoá dữ liệu VN30 (không look-ahead, winsorization, stale-masking),
+  - Tối ưu danh mục bằng Markowitz (mean–variance) với:
+    - **Phần A**: code tự lập trình (scipy/cvxpy),
+    - **Phần B**: thư viện PyPortfolioOpt,
+  - Backtest trên vũ trụ 30 mã (walk-forward),
+  - Ghi log đầy đủ preprocessing/ước lượng/optimization/backtest vào `reports/logs/`.
+- Tech stack:
+  - Python 3.11, uv, Hydra/OmegaConf,
+  - pandas/numpy/scipy, PyPortfolioOpt/CVXPY,
+  - pytest, pre-commit (Black/Ruff), GitHub Actions CI.
+
+---
+
+## 1) Golden Commands (bắt buộc dùng uv)
+
+- Môi trường:
+  - `uv venv --python 3.11 && source .venv/bin/activate`
+  - `uv sync` (CI: `uv sync --frozen`)
+  - `uv run python -m <module>`
+  - `uvx <tool>`
+
+- Pipeline CLI (Markowitz-only, không phân cụm):
+
+  - Data & Preprocessing (1–3):
+    - `uv run python -m src.vn50.cli.fetch_data +experiment=experiment_vn30_markowitz`
+    - `uv run python -m src.vn50.cli.preprocess_data +experiment=experiment_vn30_markowitz`
+    - `uv run python -m src.vn50.cli.make_returns +experiment=experiment_vn30_markowitz`
+
+  - Optimize & Backtest (4–6):
+    - `uv run python -m src.vn50.cli.optimize_markowitz_manual +experiment=experiment_vn30_markowitz`
+    - `uv run python -m src.vn50.cli.optimize_markowitz_pypfopt +experiment=experiment_vn30_markowitz`
+    - `uv run python -m src.vn50.cli.backtest +experiment=experiment_vn30_markowitz`
+
+- Make:
+  - `make setup && make all`
+  - `make test`
+  - `make lint`
+
+---
+
+## 2) Codebase Map
+
+- `configs/`
+  - Tham số cho: data, returns, estimators (covariance/mean), optimizer_markowitz_manual, optimizer_markowitz_pypfopt, backtest, paths, calendar.
+  - Không hardcode tham số trong code.
+
+- `src/vn50/data/fetch.py`
+  - Bước 1: Thu thập dữ liệu, hàm `fetch_prices(...)`.
+
+- `src/vn50/data/preprocess.py`
+  - Bước 2: làm sạch, align HOSE calendar, xử lý non-positive prices, winsorize outliers, stale-masking. :contentReference[oaicite:1]{index=1}
+
+- `src/vn50/features/returns.py`
+  - Bước 3: tính returns:
+    - daily log returns cho EDA,
+    - monthly simple returns cho Markowitz (tái cân bằng tháng).
+
+- `src/vn50/features/eda.py`
+  - Bước 4: charts, histogram/phân phối returns, heatmap tương quan (VN30 + VNINDEX/VN30 Index nếu có).
+
+- `src/vn50/split/time.py`
+  - Bước 5: in-sample / out-of-sample (ví dụ: 3 năm đầu in-sample, 2 năm cuối out-of-sample), optional internal train/val.
+
+- `src/vn50/markowitz/estimators.py`
+  - Hàm ước lượng tham số cho Markowitz:
+    - `estimate_mu_sigma(returns, cfg) -> tuple[pd.Series, pd.DataFrame]` (mu, Sigma annualized, có shrinkage, jitter).
+
+- `src/vn50/optimize/markowitz.py`
+  - Bước 6–7:
+    - Phần A – Manual:
+      - GMV, tangency (max Sharpe), efficient frontier (long-only, weight bounds).
+    - Phần B – PyPortfolioOpt:
+      - Wrapper cho `EfficientFrontier`, covariance shrinkage, GMV/Tangency.
+    - Tập trung vào mean–variance Markowitz, không thêm mô hình tối ưu khác (risk parity, minimum CVaR, v.v).
+
+- `src/vn50/backtest/engine.py`, `src/vn50/backtest/metrics.py`
+  - Bước 8: walk-forward backtest, metrics (ann_return, vol, Sharpe vs VNINDEX/VN30, max drawdown, turnover, tracking error).
+
+- `src/vn50/cli/*`
+  - Orchestration, I/O, logging, ghi file log JSON/CSV.
+
+- `data/*`
+  - raw/interim/processed/cache.
+
+- `reports/*`
+  - figures/artifacts/logs.
+
+---
+
+## 3) Contracts & Interfaces
+
+- `fetch_prices(symbols: list[str], start: str, end: str, adjusted: bool=True) -> pd.DataFrame`
+  - Trả về giá adjusted close theo ngày, index là DatetimeIndex, columns là tickers.
+
+- `clean_prices(prices: pd.DataFrame, max_missing_ratio: float) -> pd.DataFrame`
+  - Loại mã thiếu quá nhiều, drop non-positive, drop ngày toàn NaN, không forward-fill giá. :contentReference[oaicite:2]{index=2}
+
+- `make_returns(prices: pd.DataFrame, kind: Literal["log","arith"], window: int=1, freq: Literal["D","M"]="D") -> pd.DataFrame`
+  - Dùng:
+    - `kind="log", freq="D"` cho EDA,
+    - `kind="arith", freq="M"` cho Markowitz (resample cuối tháng rồi pct_change).
+
+- `estimate_mu_sigma(returns: pd.DataFrame, cfg) -> tuple[pd.Series, pd.DataFrame]`
+  - Trả:
+    - `mu`: pd.Series (annualized mean returns),
+    - `Sigma`: pd.DataFrame (annualized covariance, đã shrinkage + jitter, đảm bảo PSD).
+
+- `mean_variance_weights(mu: pd.Series, Sigma: pd.DataFrame, cfg) -> dict[str, pd.Series]`
+  - Trả các bộ trọng số:
+    - `{"gmv": w_gmv, "tangency": w_tan, "frontier": frontier_weights,...}`
+
+- `optimize_markowitz_pypfopt(returns: pd.DataFrame, cfg) -> dict[str, pd.Series]`
+  - Dùng PyPortfolioOpt để tính GMV, Tangency, frontier với cùng constraints, trả dict các weights.
+
+- `walk_forward(prices: pd.DataFrame, cfg, optimize_fn) -> BacktestResult`
+  - Backtest dạng walk-forward (tái cân bằng theo tần suất cấu hình), dùng `optimize_fn` (manual hoặc PyPO) để lấy weights.
+
+Contracts không được phá (thêm function mới thì được, nhưng giữ nguyên chữ ký trên).
+
+---
+
+## 4) Coding Standards
+
+- Black + Ruff, `uvx pre-commit run -a` trước commit.
+- Không hardcode đường dẫn/tickers/ngày.
+- Pure functions trong:
+  - preprocessing (không ghi file, không I/O),
+  - returns/estimators/optimize/backtest.
+- CLI chịu trách nhiệm:
+  - đọc/ghi file,
+  - parse config,
+  - logging.
+- Dùng logger chung, không `print`.
+
+---
+
+## 5) Testing & CI
+
+- Test cho:
+  - `sum(weights) ≈ 1`, tôn trọng bounds (long-only, min/max weight),
+  - ma trận Σ PSD sau shrinkage + jitter,
+  - không look-ahead trong returns & preprocessing (rolling phải có `shift(1)` khi cần), :contentReference[oaicite:3]{index=3}
+  - split thời gian không tràn vào tương lai (out-of-sample không dùng dữ liệu tương lai),
+  - backtest không dùng giá tương lai trong tối ưu.
+
+- `make test` → `uv run pytest -q`.
+- CI không được bỏ qua lint/test.
+
+---
+
+## 6) Config Discipline (Hydra)
+
+- `cfg.data.*`:
+  - VN30 tickers, start/end, source, adjusted flag, max_missing_ratio.
+
+- `cfg.preprocess.*`:
+  - deduplicate, align_to_calendar, drop_nonpositive, remove_all_nan_days,
+  - winsorization (mode, window, lower_q/upper_q, abs_cap),
+  - stale-masking (enable, min_consecutive_days). :contentReference[oaicite:4]{index=4}
+
+- `cfg.features.*`:
+  - `returns.kind` (log/arith),
+  - `returns.window`,
+  - resample freq cho Markowitz (`returns.freq_markowitz: "M"`),
+  - `cov.shrinkage`, jitter.
+
+- `cfg.split.*`:
+  - in_sample_years, out_of_sample_years, internal_val_split (nếu dùng).
+
+- `cfg.markowitz_manual.*`:
+  - objective (`gmv`, `tangency`, `frontier`),
+  - rf (risk-free), bounds (min_weight, max_weight),
+  - solver (SLSQP/CVXPY), max_iter.
+
+- `cfg.markowitz_pypfopt.*`:
+  - risk_model (samplecov, ledoit_wolf,...),
+  - objective (min_volatility, max_sharpe),
+  - weight_bounds, L2_penalty (nếu dùng).
+
+- `cfg.backtest.*`:
+  - rebal_freq (M, Q),
+  - window_in_sample (months/years),
+  - transaction_cost_bps, slippage_bps,
+  - benchmarks (VNINDEX, VN30 Index).
+
+- `cfg.paths.*`, `cfg.calendar.*`:
+  - trading calendar HOSE, đường dẫn data/raw/interim/processed, reports/logs.
+
+---
+
+## 7) Performance & Robustness
+
+- Dùng covariance shrinkage khi Σ gần singular; luôn thêm jitter nhỏ vào đường chéo.
+- Align index/columns trước nhân ma trận (mu, Sigma, returns).
+- Resample và tính returns cẩn thận:
+  - daily cho EDA,
+  - monthly simple cho Markowitz để giảm noise.
+- Xử lý short history rõ ràng (cảnh báo + drop mã/period nếu không đủ dữ liệu).
+- Không thực hiện tối ưu trên DataFrame có NaN; validate trước khi solve.
+
+---
+
+## 8) Security & Privacy
+
+- Không commit `.env`, data thật, API keys.
+- API từ env, `.env.example` mô tả biến.
+- `data/` không sync public repo (hoặc dùng gitignore).
+
+---
+
+## 9) Git Hygiene
+
+- Commit nhỏ, message rõ ràng (vd: `feat: add markowitz manual optimizer`).
+- Đổi CLI/config → update README + ví dụ lệnh tương ứng (`uv run ...`).
+- Không commit file tạm, notebook output lớn (dùng `.gitignore`).
+
+---
+
+## 9.5) Logs & Experiment Tracking
+
+- Mọi bước quan trọng (preprocess, returns, estimators, optimize, backtest) phải log:
+
+  - Logger ghi:
+    - step_id (1–8),
+    - time window (in-sample/out-of-sample),
+    - n_assets, n_days,
+    - tham số chính: rf, bounds, shrinkage, risk_model, solver, rebal_freq, transaction_cost_bps,
+    - metrics: ann_return, ann_vol, Sharpe, max_dd, turnover, tracking error vs benchmark.
+
+  - File log:
+    - Preprocess → `reports/logs/preprocess_*.json`,
+    - Estimators → `reports/logs/estimators_*.json`,
+    - Optimize (manual / PyPO) → `reports/logs/markowitz_manual_*.json`, `reports/logs/markowitz_pypfopt_*.json`,
+    - Backtest → `reports/logs/backtest_results_*.json` / `.csv`,
+    - Mỗi log chứa: timestamp, experiment_id, seed, config tóm tắt, metrics.
+
+- Không log thông tin nhạy cảm.
+
+---
+
+## 10) What AI Should / Shouldn’t Do
+
+- ✅ Nên:
+  - Bám đúng **bài toán Markowitz** trên VN30:
+    - ước lượng μ–Σ, GMV, Tangency, efficient frontier,
+    - cả bản **manual** và **PyPortfolioOpt**.
+  - Tôn trọng contracts & config, thêm test + log khi thêm logic mới.
+  - Dùng `uv run` cho mọi lệnh CLI.
+
+- ❌ Không nên:
+  - Thêm bất kỳ mô hình phân cụm nào (hierarchical, K-means, v.v.) vào pipeline chính.
+  - Thêm mô hình tối ưu ngoài Markowitz cho pipeline chính (risk parity, factor models, v.v.).
+  - Gọi `python` trực tiếp (phải dùng `uv run`).
+  - Ghi file ngoài `data/` và `reports/`.
+  - Hardcode tickers/ngày/tham số; phải đi qua config.
+
+---
+    
+## 11) Research Pipeline (VN30 Markowitz-only)
+
+I. Thu thập & Tiền xử lý  
+1. Thu thập adjusted close/close cho 30 VN30 (2020-10-31 → 2025-10-31).  
+2. Làm sạch:
+   - lọc mã thiếu nhiều, xử lý duplicate timestamps, drop non-positive, align HOSE calendar, drop ngày toàn NaN, :contentReference[oaicite:5]{index=5}  
+   - winsorize outliers (rolling quantile, không look-ahead), stale-masking cho chuỗi zero-return dài.  
+3. Tính returns:
+   - daily log-return cho EDA,
+   - monthly simple return (resample cuối tháng) cho Markowitz.
+
+II. EDA & Phân tích rủi ro–lợi suất  
+4. Trực quan:
+   - series giá, phân phối returns,
+   - volatility theo thời gian,
+   - heatmap tương quan (VN30 + VNINDEX/VN30 index nếu có).
+
+III. Ước lượng & Tối ưu Markowitz — Phần A (Manual)  
+5. Split thời gian:
+   - in-sample ~3 năm (2020-10-31 → 2023-10-30),
+   - out-of-sample ~2 năm (2023-10-31 → 2025-10-31).  
+6. In-sample:
+   - ước lượng μ, Σ từ monthly simple returns (annualized, shrinkage + jitter),
+   - validate Σ PSD, coverage đủ cho 30 mã.  
+7. Giải Markowitz:
+   - GMV, Tangency (max Sharpe), và efficient frontier,
+   - ràng buộc long-only, weight bounds hiện thực (vd 0–20%), fully invested.  
+8. Lưu:
+   - bảng trọng số, metrics (ann_return, vol, Sharpe),
+   - efficient frontier points,
+   - log vào `reports/logs/markowitz_manual_*.json` và figures vào `reports/`.
+
+IV. Ước lượng & Tối ưu Markowitz — Phần B (PyPortfolioOpt)  
+9. Dùng cùng in-sample returns để:
+   - ước lượng mu, Sigma qua `expected_returns` & `risk_models.CovarianceShrinkage`,
+   - giải GMV/Tangency với `EfficientFrontier`, cùng bounds & rf.  
+10. So sánh:
+    - trọng số, metrics, frontier của Phần B với Phần A,
+    - log vào `reports/logs/markowitz_pypfopt_*.json`.
+
+V. Backtest & Đánh giá  
+11. Backtest out-of-sample dạng walk-forward:
+    - tái cân bằng theo tháng,
+    - chạy các chiến lược: Tangency (manual), Tangency (PyPO), GMV, equal-weight VN30.  
+12. Tính metrics:
+    - ann_return, ann_vol, Sharpe vs VNINDEX/VN30,
+    - max drawdown, turnover, tracking error.  
+13. Lưu:
+    - equity curves, bảng metrics, tables trọng số theo thời gian,
+    - log đầy đủ vào `reports/logs/` và artifacts vào `reports/artifacts/`.
+
+# End of Rules
+

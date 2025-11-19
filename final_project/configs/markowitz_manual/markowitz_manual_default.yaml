@@ -1,0 +1,7 @@
+objective: "tangency"  # gmv, tangency, frontier
+risk_free_rate: 0.05  # Annualized, decimal
+min_weight: 0.0
+max_weight: 0.20  # 20% max per asset
+solver: "SLSQP"  # SLSQP, CVXPY
+max_iter: 1000
+

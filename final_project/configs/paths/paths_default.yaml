@@ -1,0 +1,13 @@
+data:
+  raw: "data/raw"
+  interim: "data/interim"
+  processed: "data/processed"
+  cache: "data/cache"
+
+reports:
+  logs: "reports/logs"
+  figures: "reports/figures"
+  artifacts: "reports/artifacts"
+
+configs: "configs"
+

@@ -1,0 +1,7 @@
+risk_model: "sample_cov"  # sample_cov, ledoit_wolf, etc.
+objective: "max_sharpe"  # min_volatility, max_sharpe
+weight_bounds:
+  min: 0.0
+  max: 0.20
+L2_penalty: 0.0  # Optional L2 regularization
+

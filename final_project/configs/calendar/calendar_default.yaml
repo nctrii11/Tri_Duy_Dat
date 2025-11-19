@@ -1,0 +1,6 @@
+# HOSE trading calendar
+# Có thể mở rộng với danh sách ngày nghỉ lễ
+holidays: []  # List of holiday dates if needed
+trading_days_per_week: 5
+trading_days_per_year: 252  # Approximate
+

@@ -1,0 +1,25 @@
+# @package _global_
+
+defaults:
+  - override /data: data_default
+  - override /preprocess: preprocess_default
+  - override /features: features_default
+  - override /split: split_default
+  - override /markowitz_manual: markowitz_manual_default
+  - override /markowitz_pypfopt: markowitz_pypfopt_default
+  - override /backtest: backtest_default
+  - override /paths: paths_default
+  - override /calendar: calendar_default
+
+experiment: experiment_vn30_markowitz
+seed: 42
+
+data:
+  universe: ${paths.configs}/vn30_fixed_list.yaml
+  start: "2020-10-30"
+  end: "2025-10-30"
+  start_date: ${.start}
+  end_date: ${.end}
+  adjusted: true
+  source: "vnstock"
+
